@@ -334,13 +334,24 @@ async function call(path,params={}){
 }
 
 /* Try every possible way to get trades */
-async function tryClosedPnl(category){
+async function tryClosedPnl(category, params={}){
   try{
-    const r=await call('/v5/position/closed-pnl',{category,limit:'100'});
-    const n=r.list?.length||0;
-    dbg(`  closed-pnl [${category}]: ${n} trades, cursor=${r.nextPageCursor?'yes':'no'}`);
+    const r = await call('/v5/position/closed-pnl', {
+      category,
+      limit: '100',
+      ...params
+    });
+
+    const n = r.list?.length || 0;
+
+    dbg(`  closed-pnl [${category}]: ${n} trades, cursor=${r.nextPageCursor ? 'yes' : 'no'}`);
+
     return r;
-  }catch(e){dbg(`  closed-pnl [${category}] ERROR: ${e.message}`);return null;}
+
+  }catch(e){
+    dbg(`  closed-pnl [${category}] ERROR: ${e.message}`);
+    return null;
+  }
 }
 
 async function tryOrderHistory(category){
@@ -372,14 +383,14 @@ async function fetchAllTrades(){
   do{
     const p={category:'linear',limit:'100'};
     if(linCursor)p.cursor=linCursor;
-    const r=await tryClosedPnl('linear');
+   const r = await tryClosedPnl('linear', p);
     if(!r)break;
     for(const t of(r.list||[])){
       out.push({id:t.orderId,symbol:t.symbol,type:'futures',side:t.side==='Buy'?'Long':'Short',qty:parseFloat(t.closedSize||0),entryPrice:parseFloat(t.avgEntryPrice||0),exitPrice:parseFloat(t.avgExitPrice||0),volume:parseFloat(t.closedSize||0)*parseFloat(t.avgEntryPrice||0),pnl:parseFloat(t.closedPnl||0),time:parseInt(t.updatedTime||t.createdTime||0),fee:0,funding:0});
     }
     linCursor=r.nextPageCursor||'';
     linPage++;
-    if(linPage>=20)break;
+    if(linPage>=100)break;
   }while(linCursor);
 
   /* 2. Inverse futures */
@@ -388,7 +399,7 @@ async function fetchAllTrades(){
   do{
     const p={category:'inverse',limit:'100'};
     if(invCursor)p.cursor=invCursor;
-    const r=await tryClosedPnl('inverse');
+    const r = await tryClosedPnl('inverse', p);
     if(!r)break;
     for(const t of(r.list||[])){
       out.push({id:t.orderId+'_inv',symbol:t.symbol,type:'futures',side:t.side==='Buy'?'Long':'Short',qty:parseFloat(t.closedSize||0),entryPrice:parseFloat(t.avgEntryPrice||0),exitPrice:parseFloat(t.avgExitPrice||0),volume:parseFloat(t.closedSize||0)*parseFloat(t.avgEntryPrice||0),pnl:parseFloat(t.closedPnl||0),time:parseInt(t.updatedTime||t.createdTime||0),fee:0,funding:0});
