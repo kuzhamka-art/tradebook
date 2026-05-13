@@ -334,26 +334,23 @@ async function call(path,params={}){
 }
 
 /* Try every possible way to get trades */
-async function tryClosedPnl(category, params={}){
-  try{
-    const r = await call('/v5/position/closed-pnl', {
-      category,
-      limit: '100',
-      ...params
-    });
+async function tryClosedPnl(params){
+  try {
+    const r = await call('/v5/position/closed-pnl', params);
 
     const n = r.list?.length || 0;
 
-    dbg(`  closed-pnl [${category}]: ${n} trades, cursor=${r.nextPageCursor ? 'yes' : 'no'}`);
+    dbg(
+      `  closed-pnl [${params.category}]: ${n} trades, cursor=${r.nextPageCursor ? 'yes' : 'no'}`
+    );
 
     return r;
 
-  }catch(e){
-    dbg(`  closed-pnl [${category}] ERROR: ${e.message}`);
+  } catch (e) {
+    dbg(`  closed-pnl ERROR: ${e.message}`);
     return null;
   }
 }
-
 async function tryOrderHistory(category){
   try{
     const r=await call('/v5/order/history',{category,limit:'50'});
@@ -377,21 +374,58 @@ async function fetchAllTrades(){
   dbg('=== STARTING SYNC ===');
   dbg(`Time: ${new Date().toISOString()}`);
 
-  /* 1. Linear futures (USDT perpetual) */
-  dbg('\n[1] Linear futures (closed-pnl):');
-  let linCursor='',linPage=0;
-  do{
-    const p={category:'linear',limit:'100'};
-    if(linCursor)p.cursor=linCursor;
-   const r = await tryClosedPnl('linear', p);
-    if(!r)break;
-    for(const t of(r.list||[])){
-      out.push({id:t.orderId,symbol:t.symbol,type:'futures',side:t.side==='Buy'?'Long':'Short',qty:parseFloat(t.closedSize||0),entryPrice:parseFloat(t.avgEntryPrice||0),exitPrice:parseFloat(t.avgExitPrice||0),volume:parseFloat(t.closedSize||0)*parseFloat(t.avgEntryPrice||0),pnl:parseFloat(t.closedPnl||0),time:parseInt(t.updatedTime||t.createdTime||0),fee:0,funding:0});
-    }
-    linCursor=r.nextPageCursor||'';
-    linPage++;
-    if(linPage>=100)break;
-  }while(linCursor);
+ /* 1. Linear futures (USDT perpetual) */
+
+  if (linCursor) {
+    p.cursor = linCursor;
+  }
+
+  const r = await tryClosedPnl(p);
+
+  if (!r) {
+    break;
+  }
+
+  for (const t of (r.list || [])) {
+
+    out.push({
+      id: t.orderId,
+      symbol: t.symbol,
+      type: 'futures',
+      side: t.side === 'Buy' ? 'Long' : 'Short',
+      qty: parseFloat(t.closedSize || 0),
+      entryPrice: parseFloat(t.avgEntryPrice || 0),
+      exitPrice: parseFloat(t.avgExitPrice || 0),
+      volume:
+        parseFloat(t.closedSize || 0) *
+        parseFloat(t.avgEntryPrice || 0),
+      pnl: parseFloat(t.closedPnl || 0),
+      time: parseInt(t.updatedTime || t.createdTime || 0),
+      fee: 0,
+      funding: 0
+    });
+  }
+
+  prevCursor = linCursor;
+  linCursor = r.nextPageCursor || '';
+
+  if (!linCursor) {
+    dbg('  no more pages');
+    break;
+  }
+
+  if (linCursor === prevCursor) {
+    dbg('  cursor loop detected');
+    break;
+  }
+
+  linPage++;
+
+  if (linPage >= 100) {
+    dbg('  page safety limit reached');
+    break;
+  }
+}
 
   /* 2. Inverse futures */
   dbg('\n[2] Inverse futures (closed-pnl):');
